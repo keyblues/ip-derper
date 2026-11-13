@@ -33,7 +33,9 @@ die()  { printf '%s[x]%s %s\n' "${C_R}" "${C_0}" "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-用法: install.sh --host <公网IP或域名> [选项]
+用法: install.sh [选项]
+
+  不带任何参数即可：公网 IP 自动探测，端口 443/3478，防白嫖默认开启。
 
   --host <v>              可选。公网 IPv4 或域名；不填则容器自动探测（默认 auto）
   --port <n>              宿主 DERP 端口，默认 443

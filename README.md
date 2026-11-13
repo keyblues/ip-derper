@@ -1,104 +1,93 @@
 # ip-derper
 
-纯 IP 的 Tailscale DERP 中继。没有域名、不需要 80 端口、不需要 Let's Encrypt，靠自签证书 + `CertName` 指纹让客户端信任。
+纯 IP 的 Tailscale DERP 中继。没有域名、不需要 80 端口、不需要 Let's Encrypt —— 靠自签证书 + `CertName` 指纹让客户端信任。
 
+```bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh | bash
 ```
-docker compose up -d
-docker compose logs | sed -n '/BEGIN ACL/,/END ACL/p'   # 复制进 ACL
-```
 
----
-
-## 为什么不用现成的
-
-社区里两个常见方案，各自有一个会把人坑住的问题：
-
-| 方案 | 问题 |
-|---|---|
-| `GT-610/ip-derper` | 自签证书 + `InsecureForTests`。**Tailscale 1.104 起不再尊重这个字段**，TLS 阶段直接 `x509: certificate signed by unknown authority`；而且 `build_cert.sh` 每次容器重启都重签，证书指纹天天变 |
-| `bobvane/VPS-Tailscale-DERP-AutoSetup` | 用对了 `CertName` 机制，但自更新和 compose 都从**未校验**的多源下载（含作者自建代理，版本高者胜出），镜像加速默认走第三方且无 digest 固定 |
-
-这个仓库的取舍：
-
-- **对的自签方案**：`CertName: "sha256-raw:<指纹>"`，官方支持的证书固定机制
-- **证书只生成一次**：重启不换指纹，ACL 配一次管十年
-- **零第三方下载源**：只用 `raw.githubusercontent.com` 和 `ghcr.io`
-- **镜像可验证**：cosign keyless 签名，安装脚本能校签
-- **非 root 运行**：容器内 UID 10001，`cap_drop: ALL`，`read_only` 根文件系统
-- **版本自动跟进**：每周检测 Tailscale 新 release，自动构建双架构镜像并回写 Dockerfile
+不带任何参数。装完直接给你能粘进 ACL 的 `derpMap`。
 
 ---
 
 ## 快速开始
 
-### 一键安装（推荐）
+### 1. 一键安装
 
-在 VPS 上用 root 跑一条命令，把 IP 换成你自己的：
+在 VPS 上用 root 跑：
 
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
-  | bash -s -- --host 1.2.3.4
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh | bash
 ```
 
-国内 VPS **直连 `raw.githubusercontent.com` 会超时**（实测 30s 无响应），所以上面默认走 `gh-proxy.com` 加速。备用地址：
+`raw.githubusercontent.com` 在国内 VPS 实测 30 秒无响应，所以默认走 `gh-proxy.com`。备用地址：
 
 ```bash
-# jsDelivr（CDN，国内通常很快）
-curl -fsSL https://cdn.jsdelivr.net/gh/keyblues/ip-derper@main/install.sh \
-  | bash -s -- --host 1.2.3.4
+# jsDelivr
+curl -fsSL https://cdn.jsdelivr.net/gh/keyblues/ip-derper@main/install.sh | bash
 
 # ghproxy.net
-curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
-  | bash -s -- --host 1.2.3.4
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh | bash
 
-# 直连（海外 VPS 用这个最快）
-curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
-  | bash -s -- --host 1.2.3.4
+# 直连（海外 VPS 最快）
+curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh | bash
 ```
 
-装完会把可直接粘贴的 ACL 片段打出来。常用参数：
+脚本会自动完成：探测公网 IPv4 → 生成 `docker-compose.yml` → 拉镜像 → 起容器 → 打印 ACL 片段。
+
+**你需要自己决定的只有两件事**（都有合理默认值，可以不管）：
+
+| 场景 | 需要加的参数 |
+|---|---|
+| 443 被占用 / 云安全组只放行了别的端口 | `--port 33380`（ACL 里的 `DERPPort` 会跟着变） |
+| 同一个 tailnet 里跑第二台 | `--region-id 904`（两台用同一个 ID 会互相顶掉） |
+
+完整参数：
 
 ```bash
---host 1.2.3.4          可选，不填则自动探测公网 IP
---port 443              宿主 DERP 端口
---stun-port 3478        宿主 STUN 端口
---region-id 900         900-998
---node-name derp-1
---no-verify-clients     关闭防白嫖（默认开启，需宿主机已装并登录 tailscale）
---dir /opt/ip-derper    安装目录
--y                      不交互
+--host <v>              可选，默认 auto（自动探测公网 IP）
+--port <n>              宿主 DERP 端口，默认 443
+--stun-port <n>         宿主 STUN 端口，默认 3478
+--region-id <n>         900-998，默认 900
+--region-code <s>       RegionCode，默认 cn
+--node-name <s>         节点名，默认 derp-1
+--no-verify-clients     关闭防白嫖（默认开启，需宿主机装并登录 tailscale）
+--image <ref>           镜像地址，默认 ghcr.io/keyblues/ip-derper:latest
+--dir <path>            安装目录，默认 /opt/ip-derper
+-y, --yes               不交互确认
+-h, --help              显示帮助
 ```
 
-### 手动安装
+### 2. 手动安装（不用脚本）
 
 ```bash
 mkdir -p /opt/ip-derper/data/certs && cd /opt/ip-derper
-# 关键：容器以 uid 10001 运行，目录必须让它可写，否则签证书失败
+# 容器以 uid 10001 运行，目录必须让它可写，否则签证书失败
 chown -R 10001:10001 data/certs
 
-cp .env.example .env
-vi .env        # 至少把 DERP_HOST 改成你的公网 IP
-
+cp .env.example .env      # 默认 DERP_HOST=auto，可以不改
 docker compose up -d
-```
-
-### 2. 安全组 / 防火墙
-
-| 方向 | 协议 | 端口 | 用途 |
-|---|---|---|---|
-| 入 | TCP | `443`（或你设的 `DERP_PORT`） | DERP 本体，TLS + WebSocket |
-| 入 | UDP | `3478`（或你设的 `STUN_PORT`） | STUN，供客户端发现自己的公网 endpoint |
-| 入 | UDP | `41641` | tailscaled 打洞端口，**跟本容器无关但必需** |
-
-`41641` 是最常漏的一条。不放通它，节点之间就只能靠中继，直连永远打不上。
-
-### 3. 配置 ACL
-
-```bash
 docker compose logs --no-log-prefix | sed -n '/BEGIN ACL/,/END ACL/p'
 ```
 
-拿到类似这样一段：
+### 3. 安全组 / 防火墙
+
+| 方向 | 协议 | 端口 | 用途 |
+|---|---|---|---|
+| 入 | TCP | `443`（或 `--port`） | DERP 本体，TLS + WebSocket |
+| 入 | UDP | `3478`（或 `--stun-port`） | STUN，客户端发现自己的公网 endpoint |
+| 入 | UDP | `41641` | tailscaled 打洞端口，**跟本容器无关但必需** |
+
+`41641` 是最常漏的一条。不放通它，节点之间只能靠中继，直连永远打不上。
+
+### 4. 配 ACL
+
+```bash
+docker compose -f /opt/ip-derper/docker-compose.yml logs --no-log-prefix \
+  | sed -n '/BEGIN ACL/,/END ACL/p'
+```
+
+`install.sh` 装完也会直接打一遍。拿到的是完整的一段：
 
 ```json
 {
@@ -126,16 +115,37 @@ docker compose logs --no-log-prefix | sed -n '/BEGIN ACL/,/END ACL/p'
 }
 ```
 
-粘贴到 <https://login.tailscale.com/admin/acls>。已经有 `derpMap` 就只合并新的 region。
+粘到 <https://login.tailscale.com/admin/acls>。已有 `derpMap` 就只合并新的 region。
 
-### 4. 验证
+### 5. 验证
 
 ```bash
-tailscale debug force-netmap-update      # 立即拉新配置
-tailscale netcheck                       # 列表里应出现你的 RegionCode
-tailscale debug derp 900                 # 应 Successfully established a DERP connection
-tailscale debug metrics | grep recv_data_bytes_derp   # 应开始增长（唯一不会骗人的指标）
+tailscale debug force-netmap-update                      # 立即拉新配置
+tailscale netcheck                                       # 列表里应出现你的 RegionCode
+tailscale debug derp 900                                 # 应 Successfully established a DERP connection
+tailscale debug metrics | grep recv_data_bytes_derp      # 应开始增长
 ```
+
+`recv_data_bytes_derp` 是唯一不会骗人的指标 —— `netcheck` 能出延迟只说明 TLS 握得上，不代表中继真的在传数据。
+
+---
+
+## 为什么不用现成的
+
+| 方案 | 问题 |
+|---|---|
+| `GT-610/ip-derper` | 用 `InsecureForTests` 让客户端跳过校验。**Tailscale 1.104 起不再尊重该字段**，TLS 阶段直接 `x509: certificate signed by unknown authority`；`build_cert.sh` 每次容器启动都重签，指纹天天变；`DERP_VERIFY_CLIENTS=true` 没说要挂 socket，照着做中继 100% 不可用 |
+| `bobvane/VPS-Tailscale-DERP-AutoSetup` | 用对了 `CertName`，但自更新和 compose 都从**未校验**的多源下载（含作者自建代理，版本号高者胜出），镜像加速默认走第三方且无 digest 固定 |
+
+这个仓库的取舍：
+
+- **用对的机制**：`CertName: "sha256-raw:<指纹>"`，Tailscale 官方支持的证书固定方式
+- **证书只生成一次**：重启、重建容器都不重签，ACL 配一次管十年
+- **零第三方下载源**：compose 直接内嵌在 `install.sh` 里，唯一的网络下载是 `install.sh` 自身
+- **镜像可验证**：cosign keyless 签名，装了 cosign 就自动校签
+- **非 root**：容器内 UID 10001，`cap_drop: ALL`，`no-new-privileges`，根文件系统只读
+- **默认防白嫖**：`DERP_VERIFY_CLIENTS=true`，缺 socket 直接 fail fast 而不是静默失效
+- **版本自动跟进**：每周一检测 Tailscale 新 release，自动构建双架构镜像并回写 Dockerfile
 
 ---
 
@@ -143,11 +153,7 @@ tailscale debug metrics | grep recv_data_bytes_derp   # 应开始增长（唯一
 
 ### 为什么自签证书能work
 
-DERP 客户端连服务器时要过 TLS 验证。自签证书没有公共 CA 背书，默认必然失败。
-
-Tailscale 提供了一个官方机制：在 DERP 节点的 `CertName` 字段里写证书指纹，客户端就按指纹固定，跳过 PKI 链验证。
-
-源码见 `ipn/localapi/debugderp.go`：
+`CertName` 是 Tailscale 官方的证书固定机制。源码 `ipn/localapi/debugderp.go`：
 
 ```go
 if suf, ok := strings.CutPrefix(node.CertName, "sha256-raw:"); ok {
@@ -164,17 +170,17 @@ openssl x509 -in data/certs/1.2.3.4.crt -noout -fingerprint -sha256 \
 
 ### 为什么不用 `InsecureForTests`
 
-那个字段在 Tailscale 源码里的注释是 *"It should not be set by users"*，是给单元测试留的后门。新版已经忽略它，写了也没用。
+那个字段在 Tailscale 源码里的注释是 *"It should not be set by users"*，是单元测试的后门。新版已经忽略它 —— 写了也不生效，但很多人以为自己配了。
 
 ### 指纹什么时候会变
 
-只有一种情况：**`data/certs/` 被删掉**。容器重启、镜像升级、`docker compose down` 都不会重签（`entrypoint.sh` 里先判断文件存在）。
+只有一种情况：**`data/certs/` 被删掉**。容器重启、镜像升级、`docker compose down/up` 都不会重签（`entrypoint.sh` 先判断文件存在）。
 
 所以：
 
-- 证书文件备份一下（`data/certs/` 整个目录）
-- 别随手 `rm -rf data/`
-- `DERP_CERT_DAYS` 改了不会触发重签 —— 想换有效期得先删证书，那指纹就会变
+- **别随手 `rm -rf data/`**，指纹一变 ACL 就得同步改
+- 备份 `data/certs/` 整个目录
+- 改 `DERP_CERT_DAYS` 不会触发重签，想换有效期得先删证书 —— 那指纹就会变
 
 ---
 
@@ -183,21 +189,19 @@ openssl x509 -in data/certs/1.2.3.4.crt -noout -fingerprint -sha256 \
 | 项目 | 做法 |
 |---|---|
 | 容器用户 | `derper`（UID/GID 10001），非 root |
-| 权限 | `cap_drop: ALL` + `no-new-privileges` |
-| 根文件系统 | `read_only: true`，仅 `data/certs` 可写 |
-| 容器内端口 | 8443（非 root 不能绑 443），宿主侧 `443:8443` |
+| 权限 | `cap_drop: ALL`、`no-new-privileges:true` |
+| 文件系统 | `read_only: true`；仅 `data/certs` 与 `derper-state` 卷可写 |
+| 容器内端口 | 8443（非 root 绑不了 1024 以下），宿主侧 `443:8443` |
 | 镜像来源 | 只有 `ghcr.io`，无第三方加速源 |
-| 镜像验证 | cosign keyless 签名，`install.sh` 自动校签 |
-| 脚本自我更新 | **没有**。要升级请 `git pull` 或重新下载 |
-| 外部调用 | 构建期只访问 `proxy.golang.org` 和 `github.com` |
+| 镜像验证 | cosign keyless 签名；装了 cosign 的机器上 `install.sh` 自动校验 |
+| 脚本自我更新 | **没有**。要升级请重新下载 `install.sh` |
+| 构建期外联 | Docker Hub（`golang`/`alpine` 基础镜像）、Alpine CDN（`apk` 包）、`goproxy.cn`（Go 模块，可用 `--build-arg GOPROXY_URL` 覆盖）、`github.com`（tailscale 源码） |
 
-关于 DERP 本身：它是 WireGuard 的中继，**只能看到元数据**（对端公钥、流量大小、时间戳），看不到明文 —— WireGuard 端到端加密，中继没有密钥。
-
-`DERP_VERIFY_CLIENTS=true` 是默认值：只有你 tailnet 内的设备能用这个中继。关掉（`false`）任何人的 tailnet 都能拿来当中继，会烧你的流量。
+DERP 本身是 WireGuard 的中继，**只能看到元数据**（对端公钥、流量大小、时间戳），看不到明文 —— WireGuard 端到端加密，中继没有密钥。
 
 ### ⚠️ verify-clients 是 fail-closed 的
 
-这一点必须说清楚：**derper 拿不到 tailscaled 时，不是放行，而是拒绝所有客户端。**
+这是最容易踩的坑：**derper 拿不到 tailscaled 时，不是放行，而是拒绝所有客户端。**
 
 源码 `derp/derpserver/derpserver.go`：
 
@@ -213,26 +217,62 @@ if s.verifyClientsLocalTailscaled {
 }
 ```
 
-任何错误都会让 `accept()` 返回失败，连接被关掉。所以**开了 verify-clients 但没挂 socket，结果是中继完全不能用**（容器照样 `Up`，日志也不报错，很难排查）。
+任何错误都会让 `accept()` 失败、连接被关。所以「开了 `verify-clients` 却没挂 socket」的结果是：容器 `Up`、日志不报错、中继彻底不可用。
 
-因此 `entrypoint.sh` 在启动前会先检查 socket，缺了就直接退出并告诉你怎么补：
+而且 `--verify-clients` 读的是**容器内**的 `/var/run/tailscale/tailscaled.sock`。容器的 mount namespace 与宿主机隔离，不 bind mount 进去，那个文件在容器里根本不存在。
+
+本项目的两道保险：
+
+1. compose 默认挂 `/var/run/tailscale:ro`（挂**目录**而不是单个 socket 文件 —— 宿主机没装 tailscale 时，挂文件会让 Docker 在那里建一个同名空目录，反而把 tailscale 弄坏）
+2. `entrypoint.sh` 启动前检查 socket，缺了直接退出并给出修法：
 
 ```
 [ip-derper] FATAL: DERP_VERIFY_CLIENTS=true，但找不到 tailscaled socket: /var/run/tailscale/tailscaled.sock
 ```
 
-默认配置已经挂好了宿主机的 `/var/run/tailscale`（挂**目录**而不是单个 socket 文件 —— 宿主机没装 tailscale 时，挂文件会让 Docker 在那里建一个同名空目录，反而把 tailscale 弄坏）。前提是宿主机装了 tailscale 并登录了同一个 tailnet：
+前提是宿主机装了 tailscale 并登录同一个 tailnet：
 
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 tailscale up
 ```
 
-确实要做对公网开放的公用中继，就显式关掉：
+确实要做对公网开放的公用中继，才显式关掉：
 
 ```bash
 curl -fsSL .../install.sh | bash -s -- --no-verify-clients
 ```
+
+---
+
+## 环境变量
+
+### `.env` / `install.sh` 用
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `DERP_HOST` | `auto` | 公网 IPv4 或域名；`auto` = 启动时自动探测 |
+| `DERP_IMAGE` | `ghcr.io/keyblues/ip-derper:latest` | 镜像地址 |
+| `DERP_PORT` | `443` | 宿主 DERP 端口 |
+| `STUN_PORT` | `3478` | 宿主 STUN 端口 |
+| `DERP_REGION_ID` | `900` | 900-998，多台机器必须不同 |
+| `DERP_REGION_CODE` | `cn` | `netcheck` 里显示的短码 |
+| `DERP_NODE_NAME` | `derp-1` | 节点名 |
+| `DERP_VERIFY_CLIENTS` | `true` | 防白嫖，fail-closed |
+| `DERP_CERT_DAYS` | `3650` | 证书有效期；改它不会自动重签 |
+
+### 容器内
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `DERP_ADDR` | `:8443` | 容器内监听地址，一般不用改 |
+| `DERP_HTTP_PORT` | `-1` | `-1` = 不监听 HTTP。纯 IP 模式不需要 80 |
+| `DERP_PUBLIC_PORT` | `443` | 写进 ACL 的 `DERPPort` |
+| `DERP_STUN_PORT` | `3478` | 写进 ACL 的 `STUNPort` |
+| `DERP_TAILSCALED_SOCK` | `/var/run/tailscale/tailscaled.sock` | tailscaled socket 路径 |
+| `DERP_CONFIG` | `/var/lib/derper/derper.key` | derper 的 mesh key 路径（必须显式传 `-c`） |
+| `DERP_IP_DETECT` | `true` | `false` = 禁用自动探测，必须显式给 `DERP_HOST` |
+| `DERP_DRY_RUN` | `false` | `true` = 只打印配置不启动，用于调试 |
 
 ---
 
@@ -241,7 +281,7 @@ curl -fsSL .../install.sh | bash -s -- --no-verify-clients
 镜像 tag 跟 Tailscale 官方版本走：
 
 ```
-ghcr.io/keyblues/ip-derper:v1.104.5     # 对应 tailscale v1.104.5
+ghcr.io/keyblues/ip-derper:v1.104.7
 ghcr.io/keyblues/ip-derper:latest
 ```
 
@@ -249,70 +289,58 @@ ghcr.io/keyblues/ip-derper:latest
 
 1. 查 `tailscale/tailscale` 最新 release
 2. 查 ghcr 上有没有这个 tag，有就跳过
-3. 没有就交叉编译 amd64 + arm64，推 `latest` 和版本号两个 tag
-4. cosign keyless 签名（对合并后的多架构 manifest 签名）
-5. 把新版本号 `sed` 回 Dockerfile 并提交（`[skip ci]` 防止自触发）
+3. 没有就按架构拆成两个 job 分别构建、按 digest 推送
+4. `docker buildx imagetools create` 合并成多架构 manifest，推 `latest` + 版本号
+5. cosign keyless 签名（对合并后的 manifest 签名）
+6. 把新版本号 `sed` 回 Dockerfile 并提交（`[skip ci]` 防止自触发）
 
-手动指定版本：
+`push` 触发只认 `Dockerfile` / `entrypoint.sh` 的变更，改 workflow 不会白白重建一次镜像。
 
-```
-Actions → build → Run workflow → version 填 v1.104.5
-```
+手动指定版本：`Actions → build → Run workflow → version 填 v1.104.7`
 
 固定用某个版本：
 
 ```bash
 # .env
-DERP_IMAGE=ghcr.io/keyblues/ip-derper:v1.104.5
+DERP_IMAGE=ghcr.io/keyblues/ip-derper:v1.104.7
 ```
-
----
-
-## 环境变量
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `DERP_HOST` | `auto` | 公网 IPv4 或域名。`auto` = 容器启动时自动探测 |
-| `DERP_PUBLIC_PORT` | `443` | 客户端实际连接的端口，写进 ACL 的 `DERPPort` |
-| `DERP_STUN_PORT` | `3478` | 写进 ACL 的 `STUNPort` |
-| `DERP_VERIFY_CLIENTS` | `true` | 只允许本 tailnet 使用。**fail-closed**：读不到 tailscaled 会拒绝所有客户端 |
-| `DERP_TAILSCALED_SOCK` | `/var/run/tailscale/tailscaled.sock` | 宿主机 tailscaled 的 socket 路径 |
-| `DERP_REGION_ID` | `900` | 900-998 是 Tailscale 保留给自定义 DERP 的区间 |
-| `DERP_REGION_CODE` | `cn` | 出现在 `netcheck` 输出里的短码 |
-| `DERP_NODE_NAME` | `derp-1` | 节点名 |
-| `DERP_CERT_DAYS` | `3650` | 证书有效期，改它不会自动重签 |
-| `DERP_ADDR` | `:8443` | 容器内监听地址，一般不用改 |
-| `DERP_HTTP_PORT` | `-1` | `-1` = 不监听 HTTP。纯 IP 模式不需要 80 |
-| `DERP_DRY_RUN` | `false` | `true` = 只打印配置不启动，用于调试 |
 
 ---
 
 ## 故障排查
 
+**容器起不来，日志 `derper: -c <config path> not specified`**
+
+derper 只有在 **root** 时才会自动用 `/var/lib/derper/derper.key`；非 root 必须显式传 `-c`。本项目已默认传，除非你改了 `DERP_CONFIG`。
+
 **`tailscale debug derp 900` 报 `x509: certificate signed by unknown authority`**
 
-ACL 里的 `CertName` 缺了，或者指纹跟磁盘上的证书对不上。核对：
+ACL 里的 `CertName` 缺了，或跟磁盘上的证书对不上：
 
 ```bash
-openssl x509 -in data/certs/<IP>.crt -noout -fingerprint -sha256
+openssl x509 -in /opt/ip-derper/data/certs/<IP>.crt -noout -fingerprint -sha256
 tailscale debug derp-map | jq '.Regions."900".Nodes[0].CertName'
 ```
 
-**`netcheck` 里有这个 region 但流量不走它**
+**`recv_data_bytes_derp` 一直是 0**
+
+中继没通。按顺序查：ACL 指纹 → 安全组端口 → `docker compose logs` → `openssl s_client -connect <IP>:443 </dev/null`。
+
+**`netcheck` 里有这个 region，但流量不走它**
 
 `netcheck` 只证明 TLS 能握手，不证明被选中。用 `tailscale ping <对端>` 看是不是显示你的节点名。
 
-**`recv_data_bytes_derp` 一直是 0**
+**容器 `Up` 但秒退/重启**
 
-中继没真正通。按顺序查：ACL 指纹 → 安全组端口 → `docker compose logs` 里 derper 是否起来 → `openssl s_client -connect <IP>:443 </dev/null`。
+八成是证书目录权限或 tailscaled socket。`docker compose logs` 里会有 `[ip-derper] FATAL:` 开头的具体原因。
 
 **端口被占用**
 
-把 `.env` 里的 `DERP_PORT` 改掉（比如 33380），同时 ACL 里的 `DERPPort` 要跟着改。STUN 同理。
+改 `.env` 里的 `DERP_PORT`（或 `--port`），ACL 里的 `DERPPort` 要跟着改。`STUN_PORT` 同理。
 
 **改了 `data/certs` 之后全断**
 
-指纹变了。重新 `docker compose logs | sed -n '/BEGIN ACL/,/END ACL/p'` 并更新 ACL。
+指纹变了。重新取 ACL 片段并更新。
 
 ---
 
@@ -322,18 +350,16 @@ tailscale debug derp-map | jq '.Regions."900".Nodes[0].CertName'
 # 本地构建（当前架构）
 docker build --build-arg TAILSCALE_VERSION=v1.104.7 -t ip-derper:dev .
 
-# 双架构（不需要 QEMU，走交叉编译）
+# 双架构（走交叉编译，不需要 QEMU）
 docker buildx build --platform linux/amd64,linux/arm64 \
   --build-arg TAILSCALE_VERSION=v1.104.7 -t ip-derper:dev .
 
-# 国内网络：Go 模块默认已走 goproxy.cn，需要时可显式覆盖
-docker build \
-  --build-arg GOPROXY_URL=https://goproxy.cn,direct \
-  --build-arg TAILSCALE_VERSION=v1.104.7 \
-  -t ip-derper:dev .
+# 覆盖 Go 模块代理（默认 goproxy.cn）
+docker build --build-arg GOPROXY_URL=https://proxy.golang.org,direct \
+  --build-arg TAILSCALE_VERSION=v1.104.7 -t ip-derper:dev .
 
 # 干跑：只输出 ACL 片段，不起服务
-docker run --rm -e DERP_HOST=1.2.3.4 -e DERP_DRY_RUN=true ip-derper:dev
+docker run --rm -e DERP_HOST=1.2.3.4 -e DERP_DRY_RUN=true -e DERP_VERIFY_CLIENTS=false ip-derper:dev
 
 # 测试
 bats -r tests/
