@@ -24,9 +24,15 @@ FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS builder
 ARG TAILSCALE_VERSION
 ARG TARGETOS
 ARG TARGETARCH
+# 国内构建走七牛 goproxy，取不到再回落官方源，最后 direct。
+# 需要覆盖时：docker build --build-arg GOPROXY_URL=https://proxy.golang.org,direct
+ARG GOPROXY_URL=https://goproxy.cn,https://proxy.golang.org,direct
+
+ENV GOPROXY=${GOPROXY_URL}
+# 注意：不要设置 GOTOOLCHAIN=local。
 
 # 注意：不要设置 GOTOOLCHAIN=local。
-# Tailscale 经常抬高最低 Go 补丁版本（例如 1.104.7 要求 go >= 1.27.3），
+# Tailscale 经常抬高最低 Go 补丁版本（例如 1.104.7 要求 go >= 1.27.4），
 # 锁死本地工具链会让每日构建在某天突然失败。留 auto 让它按 go.mod 自动取工具链。
 ENV CGO_ENABLED=0 \
     GOFLAGS=-trimpath

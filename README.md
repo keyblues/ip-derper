@@ -36,19 +36,23 @@ docker compose logs | sed -n '/BEGIN ACL/,/END ACL/p'   # 复制进 ACL
 在 VPS 上用 root 跑一条命令，把 IP 换成你自己的：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
   | bash -s -- --host 1.2.3.4
 ```
 
-`raw.githubusercontent.com` 不通时换这两个等价地址：
+国内 VPS **直连 `raw.githubusercontent.com` 会超时**（实测 30s 无响应），所以上面默认走 `gh-proxy.com` 加速。备用地址：
 
 ```bash
-# jsDelivr
+# jsDelivr（CDN，国内通常很快）
 curl -fsSL https://cdn.jsdelivr.net/gh/keyblues/ip-derper@main/install.sh \
   | bash -s -- --host 1.2.3.4
 
-# ghproxy
+# ghproxy.net
 curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
+  | bash -s -- --host 1.2.3.4
+
+# 直连（海外 VPS 用这个最快）
+curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
   | bash -s -- --host 1.2.3.4
 ```
 
@@ -290,11 +294,17 @@ tailscale debug derp-map | jq '.Regions."900".Nodes[0].CertName'
 
 ```bash
 # 本地构建（当前架构）
-docker build --build-arg TAILSCALE_VERSION=v1.104.5 -t ip-derper:dev .
+docker build --build-arg TAILSCALE_VERSION=v1.104.7 -t ip-derper:dev .
 
 # 双架构（不需要 QEMU，走交叉编译）
 docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-arg TAILSCALE_VERSION=v1.104.5 -t ip-derper:dev .
+  --build-arg TAILSCALE_VERSION=v1.104.7 -t ip-derper:dev .
+
+# 国内网络：Go 模块默认已走 goproxy.cn，需要时可显式覆盖
+docker build \
+  --build-arg GOPROXY_URL=https://goproxy.cn,direct \
+  --build-arg TAILSCALE_VERSION=v1.104.7 \
+  -t ip-derper:dev .
 
 # 干跑：只输出 ACL 片段，不起服务
 docker run --rm -e DERP_HOST=1.2.3.4 -e DERP_DRY_RUN=true ip-derper:dev

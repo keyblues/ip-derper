@@ -90,7 +90,13 @@ done
 
 # ---------------- 拉镜像 ----------------
 say "拉取镜像: ${DERP_IMAGE}"
-docker pull "${DERP_IMAGE}" || die "镜像拉取失败。国内网络请自行配置 registry mirror，本脚本不内置任何第三方加速源"
+docker pull "${DERP_IMAGE}" || die "镜像拉取失败。
+        国内拉 ghcr.io 慢时可以：
+          1) 给 docker 配 registry mirror，或
+          2) 用加速地址拉下来再打 tag：
+               docker pull ghcr.nju.edu.cn/keyblues/ip-derper:latest
+               docker tag  ghcr.nju.edu.cn/keyblues/ip-derper:latest ${DERP_IMAGE}
+          3) 或直接 --image ghcr.nju.edu.cn/keyblues/ip-derper:latest"
 
 if command -v cosign >/dev/null 2>&1; then
   say "检测到 cosign，校验签名..."
