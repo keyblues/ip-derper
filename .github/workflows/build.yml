@@ -1,9 +1,9 @@
 name: build
 
 # ============================================================
-# 每日检测 Tailscale 新版本 → 分架构构建 → 合并 manifest → 签名 → 回写 Dockerfile
+# 每周一检测 Tailscale 新版本 → 分架构构建 → 合并 manifest → 签名 → 回写 Dockerfile
 #
-#   schedule  每天 03:17 UTC 查 tailscale/tailscale 最新 release
+#   schedule  每周一 03:17 UTC 查 tailscale/tailscale 最新 release
 #   dispatch  手动指定版本（留空 = 自动取最新）
 #   push      改了 Dockerfile / entrypoint.sh 就用当前 ARG 版本重建
 #
@@ -24,9 +24,10 @@ on:
     paths:
       - Dockerfile
       - entrypoint.sh
-      - .github/workflows/build.yml
+      # 刻意不包含 build.yml 自身：改 workflow 不该触发一次镜像重建，
+      # 语法错误 GitHub 会在 Actions 页直接报出来。
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 3 * * 1"
   workflow_dispatch:
     inputs:
       version:

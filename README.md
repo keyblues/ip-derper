@@ -25,7 +25,7 @@ docker compose logs | sed -n '/BEGIN ACL/,/END ACL/p'   # 复制进 ACL
 - **零第三方下载源**：只用 `raw.githubusercontent.com` 和 `ghcr.io`
 - **镜像可验证**：cosign keyless 签名，安装脚本能校签
 - **非 root 运行**：容器内 UID 10001，`cap_drop: ALL`，`read_only` 根文件系统
-- **版本自动跟进**：每天检测 Tailscale 新 release，自动构建双架构镜像并回写 Dockerfile
+- **版本自动跟进**：每周检测 Tailscale 新 release，自动构建双架构镜像并回写 Dockerfile
 
 ---
 
@@ -220,7 +220,7 @@ ghcr.io/keyblues/ip-derper:v1.104.5     # 对应 tailscale v1.104.5
 ghcr.io/keyblues/ip-derper:latest
 ```
 
-`.github/workflows/build.yml` 每天 03:17 UTC 跑一次：
+`.github/workflows/build.yml` 每周一 03:17 UTC 跑一次：
 
 1. 查 `tailscale/tailscale` 最新 release
 2. 查 ghcr 上有没有这个 tag，有就跳过
