@@ -25,9 +25,11 @@ ARG TAILSCALE_VERSION
 ARG TARGETOS
 ARG TARGETARCH
 
+# 注意：不要设置 GOTOOLCHAIN=local。
+# Tailscale 经常抬高最低 Go 补丁版本（例如 1.104.7 要求 go >= 1.27.3），
+# 锁死本地工具链会让每日构建在某天突然失败。留 auto 让它按 go.mod 自动取工具链。
 ENV CGO_ENABLED=0 \
-    GOFLAGS=-trimpath \
-    GOTOOLCHAIN=local
+    GOFLAGS=-trimpath
 
 RUN apk add --no-cache git ca-certificates
 
@@ -63,7 +65,7 @@ RUN apk add --no-cache ca-certificates openssl tzdata netcat-openbsd \
 COPY --from=builder /go/bin/derper /usr/local/bin/derper
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
-USER derper
+USER 10001:10001
 WORKDIR /app
 
 # 8443：容器内非 root 无法绑定 <1024，宿主侧用 ${DERP_PORT:-443}:8443

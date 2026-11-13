@@ -23,7 +23,8 @@ jobs:
 
       - name: hadolint
         run: |
-          docker run --rm -i hadolint/hadolint:latest hadolint - < Dockerfile
+          docker run --rm -v "$PWD:/repo" -w /repo hadolint/hadolint:latest \
+            hadolint -c .hadolint.yaml Dockerfile
 
       - name: actionlint
         run: |

@@ -1,0 +1,10 @@
+# hadolint 配置
+#
+# 有意保留的一条：
+#   DL3018 — apk 不固定版本。这个镜像每天自动重建，写死包版本会因为
+#            alpine 仓库换版而随机失败，维护成本大于收益。
+#
+# 其余（含 DL3007 滚动 tag、DL3066 非数字 user）保持默认，能修的都修掉了。
+failure-threshold: warning
+ignored:
+  - DL3018
