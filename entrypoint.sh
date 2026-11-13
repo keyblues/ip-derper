@@ -31,12 +31,45 @@ DERP_REGION_CODE="${DERP_REGION_CODE:-cn}"
 DERP_NODE_NAME="${DERP_NODE_NAME:-derp-1}"
 DERP_CERT_DAYS="${DERP_CERT_DAYS:-3650}"
 DERP_CONFIG="${DERP_CONFIG:-/var/lib/derper/derper.key}"
+DERP_IP_DETECT="${DERP_IP_DETECT:-true}"
 DERP_DRY_RUN="${DERP_DRY_RUN:-false}"
 
 # ------------------------------------------------------------
-# 1. 参数校验
+# 1. 解析 DERP_HOST：不填或填 auto 时自动探测公网 IP
 # ------------------------------------------------------------
-[ -n "${DERP_HOST}" ] || die "DERP_HOST 未设置（填公网 IPv4，或域名）"
+detect_public_ip() {
+  # 多个源，任一成功即可。只用 IPv4 专用端点，避免拿到 IPv6 导致 SAN 类型错。
+  for url in \
+    "https://api.ip.sb/ip" \
+    "https://ipv4.icanhazip.com" \
+    "https://ifconfig.me/ip" \
+    "https://ipinfo.io/ip" ; do
+    ip="$(curl -fsS --max-time 6 "$url" 2>/dev/null | tr -d '[:space:]')" || continue
+    # 必须是合法 IPv4
+    echo "$ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || continue
+    # 排掉私有 / 保留 / CGNAT 段：探到这些说明出口在 NAT 里，拿它签证书没意义
+    case "$ip" in
+      10.*|127.*|169.254.*|192.168.*) continue ;;
+      172.1[6-9].*|172.2[0-9].*|172.3[01].*) continue ;;
+      100.6[4-9].*|100.[7-9][0-9].*|100.1[0-2][0-9].*) continue ;;
+    esac
+    printf '%s' "$ip"
+    return 0
+  done
+  return 1
+}
+
+if [ -z "${DERP_HOST}" ] || [ "${DERP_HOST}" = "auto" ]; then
+  [ "${DERP_IP_DETECT}" = "true" ] || die "DERP_HOST 未设置，且 DERP_IP_DETECT 已关闭"
+  log "DERP_HOST 未指定，自动探测公网 IPv4..."
+  DERP_HOST="$(detect_public_ip)" || die "自动探测公网 IP 失败（容器可能没有出网权限）。
+        请显式指定：-e DERP_HOST=<你的公网IP>"
+  log "探测到公网 IP: ${DERP_HOST}"
+fi
+
+# ------------------------------------------------------------
+# 1.1 参数校验
+# ------------------------------------------------------------
 
 # 白名单：域名 / IPv4 / IPv6 字面量
 case "${DERP_HOST}" in

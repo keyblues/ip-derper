@@ -73,7 +73,7 @@ LABEL org.opencontainers.image.title="ip-derper" \
 # /var/lib/derper 是 derper 存 mesh key 的默认路径（-c 缺省值）。
 # 根文件系统是 read_only，所以必须由 compose 挂一个可写卷上去，
 # 并且目录在镜像里就要属于 derper，否则非 root 进程写不进去会直接 Fatal。
-RUN apk add --no-cache ca-certificates openssl tzdata netcat-openbsd \
+RUN apk add --no-cache ca-certificates openssl tzdata netcat-openbsd curl \
  && addgroup -S -g 10001 derper \
  && adduser  -S -u 10001 -G derper -h /app -s /sbin/nologin derper \
  && mkdir -p /app/certs /var/lib/derper \
@@ -89,7 +89,7 @@ WORKDIR /app
 EXPOSE 8443
 EXPOSE 3478/udp
 
-ENV DERP_HOST="" \
+ENV DERP_HOST="auto" \
     DERP_CERT_DIR="/app/certs" \
     DERP_ADDR=":8443" \
     DERP_HTTP_PORT="-1" \
@@ -101,6 +101,7 @@ ENV DERP_HOST="" \
     DERP_REGION_CODE="cn" \
     DERP_NODE_NAME="derp-1" \
     DERP_CERT_DAYS="3650" \
-    DERP_CONFIG="/var/lib/derper/derper.key"
+    DERP_CONFIG="/var/lib/derper/derper.key" \
+    DERP_IP_DETECT="true"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

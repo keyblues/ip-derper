@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
     environment:
-      DERP_HOST: ${DERP_HOST:?必须设置 DERP_HOST（公网 IPv4 或域名）}
+      DERP_HOST: ${DERP_HOST:-auto}   # auto = 容器自动探测公网 IP
       DERP_ADDR: ":8443"
       DERP_HTTP_PORT: "-1"          # 纯 IP 模式不需要 80 端口
       DERP_PUBLIC_PORT: ${DERP_PORT:-443}
@@ -27,6 +27,7 @@ services:
       DERP_NODE_NAME: ${DERP_NODE_NAME:-derp-1}
       DERP_CERT_DAYS: ${DERP_CERT_DAYS:-3650}
       DERP_CONFIG: /var/lib/derper/derper.key
+      DERP_IP_DETECT: "true"
 
     ports:
       - "${DERP_PORT:-443}:8443/tcp"

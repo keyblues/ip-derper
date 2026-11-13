@@ -35,7 +35,7 @@ usage() {
   cat <<'EOF'
 用法: install.sh --host <公网IP或域名> [选项]
 
-  --host <v>              必填。公网 IPv4，或已解析到本机的域名
+  --host <v>              可选。公网 IPv4 或域名；不填则容器自动探测（默认 auto）
   --port <n>              宿主 DERP 端口，默认 443
   --stun-port <n>         宿主 STUN 端口，默认 3478
   --region-id <n>         900-998，默认 900
@@ -70,12 +70,14 @@ done
 [ "$(id -u)" = "0" ] || die "请用 root 运行（需要写 ${INSTALL_DIR} 和映射 443）"
 
 if [ -z "${DERP_HOST}" ]; then
-  [ -t 0 ] || die "非交互环境必须提供 --host"
-  printf '请输入本机公网 IP: '
-  read -r DERP_HOST
+  if [ -t 0 ]; then
+    printf '本机公网 IP（留空=容器自动探测）: '
+    read -r DERP_HOST
+  fi
 fi
-[ -n "${DERP_HOST}" ] || die "DERP_HOST 不能为空"
+DERP_HOST="${DERP_HOST:-auto}"
 case "${DERP_HOST}" in
+  auto) ;;   # 交给容器启动时探测
   *[!A-Za-z0-9._:-]*) die "DERP_HOST 含非法字符: ${DERP_HOST}" ;;
 esac
 
@@ -131,7 +133,7 @@ services:
     container_name: ip-derper
     restart: unless-stopped
     environment:
-      DERP_HOST: ${DERP_HOST:?必须设置 DERP_HOST}
+      DERP_HOST: ${DERP_HOST:-auto}   # auto = 容器自动探测公网 IP
       DERP_ADDR: ":8443"
       DERP_HTTP_PORT: "-1"
       DERP_PUBLIC_PORT: ${DERP_PORT:-443}
@@ -143,6 +145,7 @@ services:
       DERP_NODE_NAME: ${DERP_NODE_NAME:-derp-1}
       DERP_CERT_DAYS: ${DERP_CERT_DAYS:-3650}
       DERP_CONFIG: /var/lib/derper/derper.key
+      DERP_IP_DETECT: "true"
     ports:
       - "${DERP_PORT:-443}:8443/tcp"
       - "${STUN_PORT:-3478}:3478/udp"

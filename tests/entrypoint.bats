@@ -5,6 +5,8 @@ setup() {
   TMP="$(mktemp -d)"
   export DERP_CERT_DIR="${TMP}/certs"
   export DERP_DRY_RUN=true
+  # 关掉自动探测，否则 CI 环境会探测出 runner 的公网 IP 直接跑过去
+  export DERP_IP_DETECT=false
   unset DERP_HOST DERP_REGION_ID DERP_NODE_NAME
 }
 
@@ -16,6 +18,7 @@ run_entry() {
   local -a envs=(
     "DERP_CERT_DIR=${DERP_CERT_DIR}"
     "DERP_DRY_RUN=true"
+    "DERP_IP_DETECT=${DERP_IP_DETECT:-false}"
   )
   [ -n "${DERP_HOST:-}" ]      && envs+=("DERP_HOST=${DERP_HOST}")
   [ -n "${DERP_REGION_ID:-}" ] && envs+=("DERP_REGION_ID=${DERP_REGION_ID}")
@@ -24,7 +27,14 @@ run_entry() {
   return 0
 }
 
-@test "缺少 DERP_HOST 时拒绝启动" {
+@test "缺少 DERP_HOST 且禁用自动探测时拒绝启动" {
+  run_entry
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"DERP_HOST 未设置"* ]]
+}
+
+@test "DERP_HOST=auto 且禁用自动探测时拒绝启动" {
+  export DERP_HOST='auto'
   run_entry
   [ "$status" -ne 0 ]
   [[ "$output" == *"DERP_HOST 未设置"* ]]

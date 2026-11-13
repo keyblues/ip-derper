@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh 
 装完会把可直接粘贴的 ACL 片段打出来。常用参数：
 
 ```bash
---host 1.2.3.4          必填，公网 IP
+--host 1.2.3.4          可选，不填则自动探测公网 IP
 --port 443              宿主 DERP 端口
 --stun-port 3478        宿主 STUN 端口
 --region-id 900         900-998
@@ -247,7 +247,7 @@ DERP_IMAGE=ghcr.io/keyblues/ip-derper:v1.104.5
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `DERP_HOST` | — | **必填**。公网 IPv4 或域名 |
+| `DERP_HOST` | `auto` | 公网 IPv4 或域名。`auto` = 容器启动时自动探测 |
 | `DERP_PUBLIC_PORT` | `443` | 客户端实际连接的端口，写进 ACL 的 `DERPPort` |
 | `DERP_STUN_PORT` | `3478` | 写进 ACL 的 `STUNPort` |
 | `DERP_VERIFY_CLIENTS` | `false` | 只允许本 tailnet 使用 |
