@@ -94,7 +94,7 @@ jobs:
             exit 1
           fi
 
-          REPO_PATH="${IMAGE#${REGISTRY}/}"
+          REPO_PATH="${IMAGE#"${REGISTRY}"/}"
           TOKEN="$(curl -fsSL "${REGISTRY}/token?scope=repository:${REPO_PATH}:pull" | jq -r .token || true)"
           TAGS=""
           if [ -n "${TOKEN}" ] && [ "${TOKEN}" != "null" ]; then
@@ -200,10 +200,16 @@ jobs:
           set -euo pipefail
           cd /tmp/digests
           ls -l
+          # 用数组拼参数，避免 $(...) 裸展开被 shellcheck(SC2046) 拦
+          refs=()
+          for f in *; do
+            refs+=("${IMAGE}@sha256:${f}")
+          done
+          test "${#refs[@]}" -eq 2
           docker buildx imagetools create \
             -t "${IMAGE}:latest" \
             -t "${IMAGE}:${VERSION}" \
-            $(printf "${IMAGE}@sha256:%s " *)
+            "${refs[@]}"
           DIGEST="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest}}' \
                     | jq -r .digest)"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
