@@ -31,7 +31,41 @@ docker compose logs | sed -n '/BEGIN ACL/,/END ACL/p'   # 复制进 ACL
 
 ## 快速开始
 
-### 1. 起容器
+### 一键安装（推荐）
+
+在 VPS 上用 root 跑一条命令，把 IP 换成你自己的：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
+  | bash -s -- --host 1.2.3.4
+```
+
+`raw.githubusercontent.com` 不通时换这两个等价地址：
+
+```bash
+# jsDelivr
+curl -fsSL https://cdn.jsdelivr.net/gh/keyblues/ip-derper@main/install.sh \
+  | bash -s -- --host 1.2.3.4
+
+# ghproxy
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh \
+  | bash -s -- --host 1.2.3.4
+```
+
+装完会把可直接粘贴的 ACL 片段打出来。常用参数：
+
+```bash
+--host 1.2.3.4          必填，公网 IP
+--port 443              宿主 DERP 端口
+--stun-port 3478        宿主 STUN 端口
+--region-id 900         900-998
+--node-name derp-1
+--verify-clients        只允许本 tailnet 使用（需宿主机已装并登录 tailscale）
+--dir /opt/ip-derper    安装目录
+-y                      不交互
+```
+
+### 手动安装
 
 ```bash
 mkdir -p /opt/ip-derper && cd /opt/ip-derper
@@ -39,12 +73,6 @@ cp .env.example .env
 vi .env        # 至少把 DERP_HOST 改成你的公网 IP
 
 docker compose up -d
-```
-
-或者用安装脚本（会做完上面这些，并把 ACL 片段打出来）：
-
-```bash
-./install.sh --host 1.2.3.4
 ```
 
 ### 2. 安全组 / 防火墙

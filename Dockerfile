@@ -45,7 +45,7 @@ WORKDIR /src
 RUN set -e; \
     GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
       go install "tailscale.com/cmd/derper@${TAILSCALE_VERSION}"; \
-    BIN="$(find /go/bin -type f -name derper | head -n1)"; \
+    BIN="$(find /go/bin -type f -name derper -print -quit)"; \
     test -n "${BIN}"; \
     echo "built: ${BIN}"; \
     cp -f "${BIN}" /usr/local/bin/derper; \

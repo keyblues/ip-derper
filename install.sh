@@ -111,12 +111,69 @@ fi
 mkdir -p "${INSTALL_DIR}/data/certs"
 chmod 700 "${INSTALL_DIR}/data/certs"
 
-COMPOSE_URL="https://raw.githubusercontent.com/keyblues/ip-derper/main/docker-compose.yml"
+# compose 模板直接内嵌，不走网络下载：
+#   1) 少一个供应链环节（下载来的 compose 可以塞 privileged / 挂根目录）
+#   2) raw.githubusercontent.com 在国内 VPS 上常年不稳，内嵌才叫一键
 if [ ! -f "${INSTALL_DIR}/docker-compose.yml" ]; then
-  say "下载 compose 模板"
-  curl -fsSL --proto '=https' --tlsv1.2 --max-time 20 "${COMPOSE_URL}" \
-    -o "${INSTALL_DIR}/docker-compose.yml" \
-    || die "下载 compose 模板失败（本脚本只用 raw.githubusercontent.com）"
+  say "生成 docker-compose.yml"
+  cat > "${INSTALL_DIR}/docker-compose.yml" <<'YAML'
+services:
+  derper:
+    image: ${DERP_IMAGE:-ghcr.io/keyblues/ip-derper:latest}
+    container_name: ip-derper
+    restart: unless-stopped
+    environment:
+      DERP_HOST: ${DERP_HOST:?必须设置 DERP_HOST}
+      DERP_ADDR: ":8443"
+      DERP_HTTP_PORT: "-1"
+      DERP_PUBLIC_PORT: ${DERP_PORT:-443}
+      DERP_STUN: "true"
+      DERP_STUN_PORT: ${STUN_PORT:-3478}
+      DERP_VERIFY_CLIENTS: ${DERP_VERIFY_CLIENTS:-false}
+      DERP_REGION_ID: ${DERP_REGION_ID:-900}
+      DERP_REGION_CODE: ${DERP_REGION_CODE:-cn}
+      DERP_NODE_NAME: ${DERP_NODE_NAME:-derp-1}
+      DERP_CERT_DAYS: ${DERP_CERT_DAYS:-3650}
+    ports:
+      - "${DERP_PORT:-443}:8443/tcp"
+      - "${STUN_PORT:-3478}:3478/udp"
+    volumes:
+      - ./data/certs:/app/certs
+      - derper-state:/var/lib/derper
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8443 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  derper-state:
+YAML
+fi
+
+# verify-clients=true 时挂 tailscaled.sock（不挂的话 derper 拿不到 LocalAPI，全拒）
+if [ "${DERP_VERIFY_CLIENTS}" = "true" ]; then
+  if [ ! -S /var/run/tailscale/tailscaled.sock ]; then
+    die "开了 --verify-clients 但宿主机没有 /var/run/tailscale/tailscaled.sock，先装并登录 tailscale"
+  fi
+  if ! grep -q 'tailscaled.sock' "${INSTALL_DIR}/docker-compose.yml"; then
+    sed -i 's|      - ./data/certs:/app/certs|      - ./data/certs:/app/certs\n      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock|' \
+      "${INSTALL_DIR}/docker-compose.yml"
+    say "已挂载 tailscaled.sock"
+  fi
 fi
 
 cat > "${INSTALL_DIR}/.env" <<EOF
@@ -128,6 +185,7 @@ DERP_REGION_ID=${DERP_REGION_ID}
 DERP_REGION_CODE=${DERP_REGION_CODE}
 DERP_NODE_NAME=${DERP_NODE_NAME}
 DERP_VERIFY_CLIENTS=${DERP_VERIFY_CLIENTS}
+DERP_CERT_DAYS=${DERP_CERT_DAYS:-3650}
 EOF
 chmod 600 "${INSTALL_DIR}/.env"
 
