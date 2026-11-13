@@ -30,6 +30,7 @@ DERP_REGION_ID="${DERP_REGION_ID:-900}"
 DERP_REGION_CODE="${DERP_REGION_CODE:-cn}"
 DERP_NODE_NAME="${DERP_NODE_NAME:-derp-1}"
 DERP_CERT_DAYS="${DERP_CERT_DAYS:-3650}"
+DERP_CONFIG="${DERP_CONFIG:-/var/lib/derper/derper.key}"
 DERP_DRY_RUN="${DERP_DRY_RUN:-false}"
 
 # ------------------------------------------------------------
@@ -163,9 +164,15 @@ fi
 # ------------------------------------------------------------
 # 5. 启动 derper
 # ------------------------------------------------------------
+# 必须显式传 -c：derper 1.10x 起，若不传 -c 且 /var/lib/derper/derper.key 不存在，
+# 会直接 "derper: -c <config path> not specified" 退出（不是警告，是 fatal）。
+# 该路径由 compose 的 derper-state 命名卷挂载，容器内可写。
+mkdir -p "$(dirname "${DERP_CONFIG}")" 2>/dev/null || true
+
 set -- -hostname "${DERP_HOST}" \
        -certmode manual \
        -certdir "${DERP_CERT_DIR}" \
+       -c "${DERP_CONFIG}" \
        -a "${DERP_ADDR}" \
        -http-port "${DERP_HTTP_PORT}"
 

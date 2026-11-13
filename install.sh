@@ -142,6 +142,7 @@ services:
       DERP_REGION_CODE: ${DERP_REGION_CODE:-cn}
       DERP_NODE_NAME: ${DERP_NODE_NAME:-derp-1}
       DERP_CERT_DAYS: ${DERP_CERT_DAYS:-3650}
+      DERP_CONFIG: /var/lib/derper/derper.key
     ports:
       - "${DERP_PORT:-443}:8443/tcp"
       - "${STUN_PORT:-3478}:3478/udp"

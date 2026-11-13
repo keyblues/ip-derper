@@ -100,6 +100,7 @@ ENV DERP_HOST="" \
     DERP_REGION_ID="900" \
     DERP_REGION_CODE="cn" \
     DERP_NODE_NAME="derp-1" \
-    DERP_CERT_DAYS="3650"
+    DERP_CERT_DAYS="3650" `
+    DERP_CONFIG="/var/lib/derper/derper.key"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
