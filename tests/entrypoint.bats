@@ -7,7 +7,9 @@ setup() {
   export DERP_DRY_RUN=true
   # 关掉自动探测，否则 CI 环境会探测出 runner 的公网 IP 直接跑过去
   export DERP_IP_DETECT=false
-  unset DERP_HOST DERP_REGION_ID DERP_NODE_NAME
+  # 通用用例里关掉防白嫖，verify-clients 有专门的用例
+  export DERP_VERIFY_CLIENTS=false
+  unset DERP_HOST DERP_REGION_ID DERP_NODE_NAME DERP_TAILSCALED_SOCK
 }
 
 teardown() {
@@ -19,10 +21,12 @@ run_entry() {
     "DERP_CERT_DIR=${DERP_CERT_DIR}"
     "DERP_DRY_RUN=true"
     "DERP_IP_DETECT=${DERP_IP_DETECT:-false}"
+    "DERP_VERIFY_CLIENTS=${DERP_VERIFY_CLIENTS:-false}"
   )
-  [ -n "${DERP_HOST:-}" ]      && envs+=("DERP_HOST=${DERP_HOST}")
-  [ -n "${DERP_REGION_ID:-}" ] && envs+=("DERP_REGION_ID=${DERP_REGION_ID}")
-  [ -n "${DERP_NODE_NAME:-}" ] && envs+=("DERP_NODE_NAME=${DERP_NODE_NAME}")
+  [ -n "${DERP_HOST:-}" ]           && envs+=("DERP_HOST=${DERP_HOST}")
+  [ -n "${DERP_REGION_ID:-}" ]      && envs+=("DERP_REGION_ID=${DERP_REGION_ID}")
+  [ -n "${DERP_NODE_NAME:-}" ]      && envs+=("DERP_NODE_NAME=${DERP_NODE_NAME}")
+  [ -n "${DERP_TAILSCALED_SOCK:-}" ] && envs+=("DERP_TAILSCALED_SOCK=${DERP_TAILSCALED_SOCK}")
   run env "${envs[@]}" sh "${BATS_TEST_DIRNAME}/../entrypoint.sh"
   return 0
 }
@@ -93,4 +97,26 @@ run_entry() {
   [[ "$output" != *'"IPv4"'* ]]
   run openssl x509 -in "${DERP_CERT_DIR}/derp.example.com.crt" -noout -ext subjectAltName
   [[ "$output" == *"DNS:derp.example.com"* ]]
+}
+
+@test "verify-clients 开启但缺 socket 时快速失败" {
+  export DERP_HOST='1.2.3.4'
+  export DERP_VERIFY_CLIENTS=true
+  export DERP_TAILSCALED_SOCK="${TMP}/no-such.sock"
+  run_entry
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"DERP_VERIFY_CLIENTS=true"* ]]
+  [[ "$output" == *"fail-closed"* || "$output" == *"死"* ]]
+}
+
+@test "verify-clients 开启且 socket 存在时放行并传 -verify-clients" {
+  export DERP_HOST='1.2.3.4'
+  export DERP_VERIFY_CLIENTS=true
+  SOCK="${TMP}/tailscaled.sock"
+  python3 -c "import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])" "${SOCK}" \
+    || skip "该环境无法创建 unix socket"
+  export DERP_TAILSCALED_SOCK="${SOCK}"
+  run_entry
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verify-clients 已启用"* ]]
 }

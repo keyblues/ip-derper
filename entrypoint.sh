@@ -25,7 +25,8 @@ DERP_HTTP_PORT="${DERP_HTTP_PORT:--1}"
 DERP_PUBLIC_PORT="${DERP_PUBLIC_PORT:-443}"
 DERP_STUN="${DERP_STUN:-true}"
 DERP_STUN_PORT="${DERP_STUN_PORT:-3478}"
-DERP_VERIFY_CLIENTS="${DERP_VERIFY_CLIENTS:-false}"
+DERP_VERIFY_CLIENTS="${DERP_VERIFY_CLIENTS:-true}"
+DERP_TAILSCALED_SOCK="${DERP_TAILSCALED_SOCK:-/var/run/tailscale/tailscaled.sock}"
 DERP_REGION_ID="${DERP_REGION_ID:-900}"
 DERP_REGION_CODE="${DERP_REGION_CODE:-cn}"
 DERP_NODE_NAME="${DERP_NODE_NAME:-derp-1}"
@@ -89,6 +90,19 @@ esac
 case "${DERP_PUBLIC_PORT}" in
   ''|*[!0-9]*) die "DERP_PUBLIC_PORT 必须是数字" ;;
 esac
+
+# verify-clients 是 fail-closed：拿不到 tailscaled 就拒绝【所有】客户端。
+# 不提前拦住的话，容器会显示 running 但中继完全不可用，很难排查。
+if [ "${DERP_VERIFY_CLIENTS}" = "true" ] && [ ! -S "${DERP_TAILSCALED_SOCK}" ]; then
+  die "DERP_VERIFY_CLIENTS=true，但找不到 tailscaled socket: ${DERP_TAILSCALED_SOCK}
+        derper 无法查询本地 tailscaled 时会拒绝所有客户端（不是放行），中继等于死的。二选一：
+          1) 宿主机装好 tailscale 并登录，再把 /var/run/tailscale 挂进容器
+             （挂目录，别挂单个文件——宿主机没装时 Docker 会把它建成空目录）
+          2) 不需要防白嫖：-e DERP_VERIFY_CLIENTS=false"
+fi
+if [ "${DERP_VERIFY_CLIENTS}" = "true" ]; then
+  log "verify-clients 已启用，socket: ${DERP_TAILSCALED_SOCK}"
+fi
 
 # ------------------------------------------------------------
 # 2. 判定 SAN 类型
@@ -213,8 +227,10 @@ if [ "${DERP_STUN}" = "true" ]; then
   set -- "$@" -stun -stun-port "${DERP_STUN_PORT}"
 fi
 
+# 防白嫖：verify-clients 是 fail-closed 的 —— 拿不到 tailscaled 就拒绝所有客户端。
+# socket 可用性已在第 1 步校验过，这里只负责传参。
 if [ "${DERP_VERIFY_CLIENTS}" = "true" ]; then
-  set -- "$@" -verify-clients
+  set -- "$@" -verify-clients -socket "${DERP_TAILSCALED_SOCK}"
 fi
 
 log "启动: derper $*"

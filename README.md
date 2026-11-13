@@ -64,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh 
 --stun-port 3478        宿主 STUN 端口
 --region-id 900         900-998
 --node-name derp-1
---verify-clients        只允许本 tailnet 使用（需宿主机已装并登录 tailscale）
+--no-verify-clients     关闭防白嫖（默认开启，需宿主机已装并登录 tailscale）
 --dir /opt/ip-derper    安装目录
 -y                      不交互
 ```
@@ -193,21 +193,46 @@ openssl x509 -in data/certs/1.2.3.4.crt -noout -fingerprint -sha256 \
 
 关于 DERP 本身：它是 WireGuard 的中继，**只能看到元数据**（对端公钥、流量大小、时间戳），看不到明文 —— WireGuard 端到端加密，中继没有密钥。
 
-`DERP_VERIFY_CLIENTS=false`（默认）时任何人的 tailnet 都能拿你的机器当中继，会烧流量。单人中继建议开成 `true`：
+`DERP_VERIFY_CLIENTS=true` 是默认值：只有你 tailnet 内的设备能用这个中继。关掉（`false`）任何人的 tailnet 都能拿来当中继，会烧你的流量。
 
-```yaml
-# docker-compose.yml 里取消注释
-volumes:
-  - ./data/certs:/app/certs
-  - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+### ⚠️ verify-clients 是 fail-closed 的
+
+这一点必须说清楚：**derper 拿不到 tailscaled 时，不是放行，而是拒绝所有客户端。**
+
+源码 `derp/derpserver/derpserver.go`：
+
+```go
+if s.verifyClientsLocalTailscaled {
+    _, err := s.localClient.WhoIsNodeKey(ctx, clientKey)
+    if err == local.ErrPeerNotFound {
+        return fmt.Errorf("peer %v not authorized", clientKey)
+    }
+    if err != nil {
+        return fmt.Errorf("failed to query local tailscaled status for %v: %w", clientKey, err)
+    }
+}
 ```
+
+任何错误都会让 `accept()` 返回失败，连接被关掉。所以**开了 verify-clients 但没挂 socket，结果是中继完全不能用**（容器照样 `Up`，日志也不报错，很难排查）。
+
+因此 `entrypoint.sh` 在启动前会先检查 socket，缺了就直接退出并告诉你怎么补：
+
+```
+[ip-derper] FATAL: DERP_VERIFY_CLIENTS=true，但找不到 tailscaled socket: /var/run/tailscale/tailscaled.sock
+```
+
+默认配置已经挂好了宿主机的 `/var/run/tailscale`（挂**目录**而不是单个 socket 文件 —— 宿主机没装 tailscale 时，挂文件会让 Docker 在那里建一个同名空目录，反而把 tailscale 弄坏）。前提是宿主机装了 tailscale 并登录了同一个 tailnet：
 
 ```bash
-# .env
-DERP_VERIFY_CLIENTS=true
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up
 ```
 
-前提是宿主机装了 tailscale 并登录了同一个 tailnet。
+确实要做对公网开放的公用中继，就显式关掉：
+
+```bash
+curl -fsSL .../install.sh | bash -s -- --no-verify-clients
+```
 
 ---
 
@@ -250,7 +275,8 @@ DERP_IMAGE=ghcr.io/keyblues/ip-derper:v1.104.5
 | `DERP_HOST` | `auto` | 公网 IPv4 或域名。`auto` = 容器启动时自动探测 |
 | `DERP_PUBLIC_PORT` | `443` | 客户端实际连接的端口，写进 ACL 的 `DERPPort` |
 | `DERP_STUN_PORT` | `3478` | 写进 ACL 的 `STUNPort` |
-| `DERP_VERIFY_CLIENTS` | `false` | 只允许本 tailnet 使用 |
+| `DERP_VERIFY_CLIENTS` | `true` | 只允许本 tailnet 使用。**fail-closed**：读不到 tailscaled 会拒绝所有客户端 |
+| `DERP_TAILSCALED_SOCK` | `/var/run/tailscale/tailscaled.sock` | 宿主机 tailscaled 的 socket 路径 |
 | `DERP_REGION_ID` | `900` | 900-998 是 Tailscale 保留给自定义 DERP 的区间 |
 | `DERP_REGION_CODE` | `cn` | 出现在 `netcheck` 输出里的短码 |
 | `DERP_NODE_NAME` | `derp-1` | 节点名 |

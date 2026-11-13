@@ -21,7 +21,8 @@ services:
       DERP_PUBLIC_PORT: ${DERP_PORT:-443}
       DERP_STUN: "true"
       DERP_STUN_PORT: ${STUN_PORT:-3478}
-      DERP_VERIFY_CLIENTS: ${DERP_VERIFY_CLIENTS:-false}
+      DERP_VERIFY_CLIENTS: ${DERP_VERIFY_CLIENTS:-true}
+      DERP_TAILSCALED_SOCK: /var/run/tailscale/tailscaled.sock
       DERP_REGION_ID: ${DERP_REGION_ID:-900}
       DERP_REGION_CODE: ${DERP_REGION_CODE:-cn}
       DERP_NODE_NAME: ${DERP_NODE_NAME:-derp-1}
@@ -38,6 +39,10 @@ services:
       - ./data/certs:/app/certs
       # derper 的 mesh key 落在 /var/lib/derper；根文件系统只读，必须给它一个可写卷
       - derper-state:/var/lib/derper
+      # 防白嫖：verify-clients 需要读宿主 tailscaled 的 LocalAPI。
+      # 挂整个目录而不是单个 socket 文件——宿主机没装 tailscale 时，
+      # 挂文件会让 Docker 在宿主上建一个同名空目录，反而把 tailscale 弄坏。
+      - /var/run/tailscale:/var/run/tailscale:ro
 
     # ---- 收敛权限面 ----
     read_only: true
@@ -47,10 +52,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-
-    # verify-clients=true 时取消注释（容器内需能读到 tailscaled 的 socket）
-    # volumes 追加：
-    #   - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
 
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 8443 || exit 1"]

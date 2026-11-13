@@ -4,7 +4,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh | bash -s -- --host 1.2.3.4
 #   或
-#   ./install.sh --host 1.2.3.4 --port 443 --verify-clients
+#   ./install.sh --host 1.2.3.4 --port 443            # 默认已开启防白嫖
 #
 # 设计原则（相对常见的"一键脚本"）：
 #   * 不从任何第三方加速源下载：本脚本只依赖 GitHub raw + ghcr.io
@@ -22,7 +22,7 @@ STUN_PORT="3478"
 DERP_REGION_ID="900"
 DERP_REGION_CODE="cn"
 DERP_NODE_NAME="derp-1"
-DERP_VERIFY_CLIENTS="false"
+DERP_VERIFY_CLIENTS="true"
 ASSUME_YES="false"
 
 C_G=$'\033[32m'; C_Y=$'\033[33m'; C_R=$'\033[31m'; C_B=$'\033[1m'; C_0=$'\033[0m'
@@ -41,7 +41,7 @@ usage() {
   --region-id <n>         900-998，默认 900
   --region-code <s>       RegionCode，默认 cn
   --node-name <s>         节点名，默认 derp-1
-  --verify-clients        只允许本 tailnet 使用（需宿主机装 tailscale）
+  --no-verify-clients     关闭防白嫖（默认开启，需宿主机装并登录 tailscale）
   --image <ref>           镜像地址，默认 ghcr.io/keyblues/ip-derper:latest
   --dir <path>            安装目录，默认 /opt/ip-derper
   -y, --yes               不交互确认
@@ -57,7 +57,8 @@ while [ $# -gt 0 ]; do
     --region-id)      DERP_REGION_ID="${2:-}"; shift 2 ;;
     --region-code)    DERP_REGION_CODE="${2:-}"; shift 2 ;;
     --node-name)      DERP_NODE_NAME="${2:-}"; shift 2 ;;
-    --verify-clients) DERP_VERIFY_CLIENTS="true"; shift ;;
+    --no-verify-clients) DERP_VERIFY_CLIENTS="false"; shift ;;
+    --verify-clients)    DERP_VERIFY_CLIENTS="true"; shift ;;   # 兼容旧参数
     --image)          DERP_IMAGE="${2:-}"; shift 2 ;;
     --dir)            INSTALL_DIR="${2:-}"; shift 2 ;;
     -y|--yes)         ASSUME_YES="true"; shift ;;
@@ -139,7 +140,8 @@ services:
       DERP_PUBLIC_PORT: ${DERP_PORT:-443}
       DERP_STUN: "true"
       DERP_STUN_PORT: ${STUN_PORT:-3478}
-      DERP_VERIFY_CLIENTS: ${DERP_VERIFY_CLIENTS:-false}
+      DERP_VERIFY_CLIENTS: ${DERP_VERIFY_CLIENTS:-true}
+      DERP_TAILSCALED_SOCK: /var/run/tailscale/tailscaled.sock
       DERP_REGION_ID: ${DERP_REGION_ID:-900}
       DERP_REGION_CODE: ${DERP_REGION_CODE:-cn}
       DERP_NODE_NAME: ${DERP_NODE_NAME:-derp-1}
@@ -152,6 +154,7 @@ services:
     volumes:
       - ./data/certs:/app/certs
       - derper-state:/var/lib/derper
+      - /var/run/tailscale:/var/run/tailscale:ro
     read_only: true
     tmpfs:
       - /tmp
@@ -176,16 +179,24 @@ volumes:
 YAML
 fi
 
-# verify-clients=true 时挂 tailscaled.sock（不挂的话 derper 拿不到 LocalAPI，全拒）
+# 防白嫖默认开启。
+# derper 的 verify-clients 是 fail-closed：拿不到 tailscaled 就拒绝【所有】客户端，
+# 容器看着是 running，中继实际完全不可用。所以必须在这里提前拦住。
 if [ "${DERP_VERIFY_CLIENTS}" = "true" ]; then
-  if [ ! -S /var/run/tailscale/tailscaled.sock ]; then
-    die "开了 --verify-clients 但宿主机没有 /var/run/tailscale/tailscaled.sock，先装并登录 tailscale"
+  SOCK=/var/run/tailscale/tailscaled.sock
+  if [ ! -S "${SOCK}" ]; then
+    die "默认开启了防白嫖（verify-clients），但宿主机没有 ${SOCK}
+
+        先装并登录 tailscale：
+          curl -fsSL https://tailscale.com/install.sh | sh
+          tailscale up
+
+        如果这台机器就是打算做对公网开放的中继，加 --no-verify-clients 重跑。"
   fi
-  if ! grep -q 'tailscaled.sock' "${INSTALL_DIR}/docker-compose.yml"; then
-    sed -i 's|      - ./data/certs:/app/certs|      - ./data/certs:/app/certs\n      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock|' \
-      "${INSTALL_DIR}/docker-compose.yml"
-    say "已挂载 tailscaled.sock"
+  if command -v tailscale >/dev/null 2>&1 && ! tailscale status >/dev/null 2>&1; then
+    die "tailscale 已安装但尚未登录，先执行 tailscale up"
   fi
+  say "防白嫖已启用（读取 ${SOCK}）"
 fi
 
 cat > "${INSTALL_DIR}/.env" <<EOF
