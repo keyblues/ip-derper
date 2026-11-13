@@ -1,0 +1,12 @@
+.git
+.github
+.gitignore
+tests
+data
+.env
+.env.example
+*.md
+LICENSE
+install.sh
+docker-compose.yml
+renovate.json

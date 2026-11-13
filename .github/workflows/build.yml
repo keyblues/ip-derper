@@ -1,0 +1,207 @@
+name: build
+
+# ============================================================
+# 每日检测 Tailscale 新版本 → 多架构构建 → 签名 → 回写 Dockerfile
+#
+#   schedule  每天 03:17 UTC 查 tailscale/tailscale 最新 release
+#   dispatch  手动指定版本（留空 = 自动取最新）
+#   push      改了 Dockerfile / entrypoint.sh 就用当前 ARG 版本重建
+#
+# 产出：
+#   ghcr.io/<keyblues>/ip-derper:latest
+#   ghcr.io/<keyblues>/ip-derper:<tailscale 版本号>   例如 v1.104.5
+#   + cosign 无密钥签名（keyless）
+#   + SLSA provenance（mode=max）
+#   + SPDX SBOM
+# ============================================================
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - entrypoint.sh
+      - .github/workflows/build.yml
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tailscale 版本（如 v1.104.5）。留空 = 自动取最新"
+        required: false
+        type: string
+
+permissions:
+  contents: write        # 回写 Dockerfile 版本号
+  packages: write        # 推镜像
+  id-token: write        # cosign keyless + provenance
+  attestations: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ------------------------------------------------------------
+  # 1. 解析目标版本，并判断是否真的需要构建
+  # ------------------------------------------------------------
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      build: ${{ steps.v.outputs.build }}
+      image: ${{ steps.v.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target version
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+          if [ "${EVENT}" = "push" ]; then
+            # 代码变更触发的重建：用 Dockerfile 里当前写的版本
+            VER="$(grep -m1 '^ARG TAILSCALE_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' ')"
+            echo "触发=push，使用 Dockerfile 版本 ${VER}"
+            echo "version=${VER}"  >> "$GITHUB_OUTPUT"
+            echo "build=true"      >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "${INPUT_VERSION}" ]; then
+            VER="${INPUT_VERSION}"
+            echo "触发=dispatch，使用指定版本 ${VER}"
+          else
+            VER="$(curl -fsSL -H "Accept: application/vnd.github+json" \
+                    -H "Authorization: Bearer ${GH_TOKEN}" \
+                    https://api.github.com/repos/tailscale/tailscale/releases/latest \
+                  | jq -r .tag_name)"
+            echo "触发=${EVENT}，检测到最新版本 ${VER}"
+          fi
+
+          # 只接受严格的 vX.Y.Z，防止任意字符串注入到 ARG 与 tag
+          if ! echo "${VER}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: 版本格式非法: ${VER}" >&2
+            exit 1
+          fi
+
+          # 查 ghcr 上是否已有该 tag（公开包可匿名取 token）
+          REPO_PATH="${IMAGE#ghcr.io/}"
+          TOKEN="$(curl -fsSL "https://ghcr.io/token?scope=repository:${REPO_PATH}:pull" | jq -r .token || true)"
+          TAGS=""
+          if [ -n "${TOKEN}" ] && [ "${TOKEN}" != "null" ]; then
+            TAGS="$(curl -fsSL -H "Authorization: Bearer ${TOKEN}" \
+                    "https://ghcr.io/v2/${REPO_PATH}/tags/list" | jq -r '.tags[]?' 2>/dev/null || true)"
+          fi
+
+          if printf '%s\n' "${TAGS}" | grep -qx "${VER}"; then
+            echo "${VER} 已存在，跳过构建"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "${VER} 尚未构建，开始"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
+  # ------------------------------------------------------------
+  # 2. 构建 + 推送 + 签名
+  # ------------------------------------------------------------
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            TAILSCALE_VERSION=${{ needs.resolve.outputs.version }}
+          tags: |
+            ${{ needs.resolve.outputs.image }}:latest
+            ${{ needs.resolve.outputs.image }}:${{ needs.resolve.outputs.version }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.resolve.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        env:
+          IMAGE: ${{ needs.resolve.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+          echo "signed: ${IMAGE}@${DIGEST}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### ip-derper ${VER}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Tailscale | \`${VER}\` |"
+            echo "| Digest | \`${DIGEST}\` |"
+            echo "| Arch | amd64, arm64 |"
+            echo "| Signature | cosign keyless |"
+            echo ""
+            echo '```'
+            echo "docker pull ${IMAGE}:${VER}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          VER: ${{ needs.resolve.outputs.version }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ needs.resolve.outputs.image }}
+
+  # ------------------------------------------------------------
+  # 3. 把新版本号回写 Dockerfile（让仓库里的版本号始终可信）
+  # ------------------------------------------------------------
+  bump:
+    needs: [resolve, build]
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump ARG TAILSCALE_VERSION
+        env:
+          VER: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          CUR="$(grep -m1 '^ARG TAILSCALE_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' ')"
+          if [ "${CUR}" = "${VER}" ]; then
+            echo "Dockerfile 已是 ${VER}，无需提交"
+            exit 0
+          fi
+          sed -i "s|^ARG TAILSCALE_VERSION=.*|ARG TAILSCALE_VERSION=${VER}|" Dockerfile
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(deps): tailscale ${VER} [skip ci]"
+          git push

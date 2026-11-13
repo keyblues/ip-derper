@@ -1,0 +1,15 @@
+# --- 本地安装产物 ---
+.env
+data/
+*.log
+
+# --- 编辑器 / 系统 ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- 构建 ---
+/derper
+*.tar
+*.tgz
