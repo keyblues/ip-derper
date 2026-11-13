@@ -81,6 +81,16 @@ esac
 # ------------------------------------------------------------
 mkdir -p "${DERP_CERT_DIR}" || die "无法创建证书目录: ${DERP_CERT_DIR}"
 
+# 容器以 uid 10001 运行。宿主 bind mount 过来的目录如果是 root:root 700，
+# openssl 会静默失败并只留下一句“签发失败”，所以先显式探一次可写性。
+if ! touch "${DERP_CERT_DIR}/.write-test" 2>/dev/null; then
+  die "证书目录不可写: ${DERP_CERT_DIR}
+        容器内当前 uid=$(id -u)。宿主上执行：
+          chown -R 10001:10001 <证书目录>
+          chmod 750 <证书目录>"
+fi
+rm -f "${DERP_CERT_DIR}/.write-test"
+
 # derper --certmode=manual 按 hostname 去掉 [^a-zA-Z0-9.-] 后的名字找证书
 CERT_BASE="$(printf '%s' "${DERP_HOST}" | tr -d -c 'a-zA-Z0-9.-')"
 [ -n "${CERT_BASE}" ] || die "无法从 DERP_HOST 推导证书文件名"

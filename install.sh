@@ -109,7 +109,9 @@ fi
 
 # ---------------- 落盘配置 ----------------
 mkdir -p "${INSTALL_DIR}/data/certs"
-chmod 700 "${INSTALL_DIR}/data/certs"
+# 容器以 uid/gid 10001 运行，宿主目录必须让它可写，否则 openssl 签证书会失败
+chown -R 10001:10001 "${INSTALL_DIR}/data/certs"
+chmod 750 "${INSTALL_DIR}/data/certs"
 
 # compose 模板直接内嵌，不走网络下载：
 #   1) 少一个供应链环节（下载来的 compose 可以塞 privileged / 挂根目录）

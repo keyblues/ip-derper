@@ -68,7 +68,10 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/keyblues/ip-der
 ### 手动安装
 
 ```bash
-mkdir -p /opt/ip-derper && cd /opt/ip-derper
+mkdir -p /opt/ip-derper/data/certs && cd /opt/ip-derper
+# 关键：容器以 uid 10001 运行，目录必须让它可写，否则签证书失败
+chown -R 10001:10001 data/certs
+
 cp .env.example .env
 vi .env        # 至少把 DERP_HOST 改成你的公网 IP
 
