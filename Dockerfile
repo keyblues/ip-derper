@@ -35,10 +35,21 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /src
 
-# GOOS/GOARCH 由 buildx 注入，一次构建同时产出 amd64 与 arm64
-RUN GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
-    go install "tailscale.com/cmd/derper@${TAILSCALE_VERSION}" \
- && test -x /go/bin/derper
+# GOOS/GOARCH 由 buildx 注入。
+#
+# 坑：go install 在「交叉编译」（GOOS/GOARCH 与构建机不同）时，产物落在
+#   $GOPATH/bin/${GOOS}_${GOARCH}/derper
+# 而不是 $GOPATH/bin/derper。所以不能写死 /go/bin/derper 去 test，
+# 那样 arm64 那张会静默 exit 1（test 失败不打印任何东西）。
+# 这里用 find 兼容两种布局，再统一 install 到固定路径。
+RUN set -e; \
+    GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+      go install "tailscale.com/cmd/derper@${TAILSCALE_VERSION}"; \
+    BIN="$(find /go/bin -type f -name derper | head -n1)"; \
+    test -n "${BIN}"; \
+    echo "built: ${BIN}"; \
+    cp -f "${BIN}" /usr/local/bin/derper; \
+    chmod 0755 /usr/local/bin/derper
 
 # ------------------------------------------------------------
 # 阶段二：运行
@@ -62,7 +73,7 @@ RUN apk add --no-cache ca-certificates openssl tzdata netcat-openbsd \
  && mkdir -p /app/certs /var/lib/derper \
  && chown -R derper:derper /app /var/lib/derper
 
-COPY --from=builder /go/bin/derper /usr/local/bin/derper
+COPY --from=builder /usr/local/bin/derper /usr/local/bin/derper
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
 USER 10001:10001

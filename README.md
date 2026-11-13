@@ -23,7 +23,7 @@ docker compose logs | sed -n '/BEGIN ACL/,/END ACL/p'   # 复制进 ACL
 - **对的自签方案**：`CertName: "sha256-raw:<指纹>"`，官方支持的证书固定机制
 - **证书只生成一次**：重启不换指纹，ACL 配一次管十年
 - **零第三方下载源**：只用 `raw.githubusercontent.com` 和 `ghcr.io`
-- **镜像可验证**：cosign keyless 签名 + SLSA provenance + SBOM，安装脚本能校签
+- **镜像可验证**：cosign keyless 签名，安装脚本能校签
 - **非 root 运行**：容器内 UID 10001，`cap_drop: ALL`，`read_only` 根文件系统
 - **版本自动跟进**：每天检测 Tailscale 新 release，自动构建双架构镜像并回写 Dockerfile
 
@@ -190,7 +190,7 @@ ghcr.io/keyblues/ip-derper:latest
 1. 查 `tailscale/tailscale` 最新 release
 2. 查 ghcr 上有没有这个 tag，有就跳过
 3. 没有就交叉编译 amd64 + arm64，推 `latest` 和版本号两个 tag
-4. cosign keyless 签名、生成 SLSA provenance 和 SPDX SBOM
+4. cosign keyless 签名（对合并后的多架构 manifest 签名）
 5. 把新版本号 `sed` 回 Dockerfile 并提交（`[skip ci]` 防止自触发）
 
 手动指定版本：
