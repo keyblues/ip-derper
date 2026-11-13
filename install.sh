@@ -4,7 +4,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh | bash -s -- --host 1.2.3.4
 #   或
-#   ./install.sh --host 1.2.3.4 --port 443            # 默认已开启防白嫖
+#   ./install.sh                                    # 不带参数，全默认
 #
 # 设计原则（相对常见的"一键脚本"）：
 #   * 不从任何第三方加速源下载：本脚本只依赖 GitHub raw + ghcr.io
@@ -17,7 +17,7 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/ip-derper}"
 DERP_IMAGE="${DERP_IMAGE:-ghcr.io/keyblues/ip-derper:latest}"
 DERP_HOST=""
-DERP_PORT="443"
+DERP_PORT="33380"
 STUN_PORT="3478"
 DERP_REGION_ID="900"
 DERP_REGION_CODE="cn"
@@ -35,10 +35,10 @@ usage() {
   cat <<'EOF'
 用法: install.sh [选项]
 
-  不带任何参数即可：公网 IP 自动探测，端口 443/3478，防白嫖默认开启。
+  不带任何参数即可：公网 IP 自动探测，端口 33380/3478，防白嫖默认开启。
 
   --host <v>              可选。公网 IPv4 或域名；不填则容器自动探测（默认 auto）
-  --port <n>              宿主 DERP 端口，默认 443
+  --port <n>              宿主 DERP 端口，默认 33380
   --stun-port <n>         宿主 STUN 端口，默认 3478
   --region-id <n>         900-998，默认 900
   --region-code <s>       RegionCode，默认 cn
@@ -70,7 +70,7 @@ while [ $# -gt 0 ]; do
 done
 
 # ---------------- 前置检查 ----------------
-[ "$(id -u)" = "0" ] || die "请用 root 运行（需要写 ${INSTALL_DIR} 和映射 443）"
+[ "$(id -u)" = "0" ] || die "请用 root 运行（需要写 ${INSTALL_DIR} 和映射端口）"
 
 if [ -z "${DERP_HOST}" ]; then
   if [ -t 0 ]; then
@@ -139,7 +139,7 @@ services:
       DERP_HOST: ${DERP_HOST:-auto}   # auto = 容器自动探测公网 IP
       DERP_ADDR: ":8443"
       DERP_HTTP_PORT: "-1"
-      DERP_PUBLIC_PORT: ${DERP_PORT:-443}
+      DERP_PUBLIC_PORT: ${DERP_PORT:-33380}
       DERP_STUN: "true"
       DERP_STUN_PORT: ${STUN_PORT:-3478}
       DERP_VERIFY_CLIENTS: ${DERP_VERIFY_CLIENTS:-true}
@@ -151,7 +151,7 @@ services:
       DERP_CONFIG: /var/lib/derper/derper.key
       DERP_IP_DETECT: "true"
     ports:
-      - "${DERP_PORT:-443}:8443/tcp"
+      - "${DERP_PORT:-33380}:8443/tcp"
       - "${STUN_PORT:-3478}:3478/udp"
     volumes:
       - ./data/certs:/app/certs

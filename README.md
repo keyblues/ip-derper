@@ -39,14 +39,14 @@ curl -fsSL https://raw.githubusercontent.com/keyblues/ip-derper/main/install.sh 
 
 | 场景 | 需要加的参数 |
 |---|---|
-| 443 被占用 / 云安全组只放行了别的端口 | `--port 33380`（ACL 里的 `DERPPort` 会跟着变） |
+| 想用 443（需安全组放行，国内云常因备案策略卡住） | `--port 443`（ACL 里的 `DERPPort` 会跟着变） |
 | 同一个 tailnet 里跑第二台 | `--region-id 904`（两台用同一个 ID 会互相顶掉） |
 
 完整参数：
 
 ```bash
 --host <v>              可选，默认 auto（自动探测公网 IP）
---port <n>              宿主 DERP 端口，默认 443
+--port <n>              宿主 DERP 端口，默认 33380
 --stun-port <n>         宿主 STUN 端口，默认 3478
 --region-id <n>         900-998，默认 900
 --region-code <s>       RegionCode，默认 cn
@@ -74,7 +74,7 @@ docker compose logs --no-log-prefix | sed -n '/BEGIN ACL/,/END ACL/p'
 
 | 方向 | 协议 | 端口 | 用途 |
 |---|---|---|---|
-| 入 | TCP | `443`（或 `--port`） | DERP 本体，TLS + WebSocket |
+| 入 | TCP | `33380`（或 `--port`） | DERP 本体，TLS + WebSocket |
 | 入 | UDP | `3478`（或 `--stun-port`） | STUN，客户端发现自己的公网 endpoint |
 | 入 | UDP | `41641` | tailscaled 打洞端口，**跟本容器无关但必需** |
 
@@ -103,7 +103,7 @@ docker compose -f /opt/ip-derper/docker-compose.yml logs --no-log-prefix \
             "Name": "derp-1",
             "RegionID": 900,
             "HostName": "1.2.3.4",
-            "DERPPort": 443,
+            "DERPPort": 33380,
             "STUNPort": 3478,
             "CertName": "sha256-raw:1e9da7f725d8312654e881d89498c8f982c361a701bd995740632e7bb9383649",
             "IPv4": "1.2.3.4"
@@ -191,7 +191,7 @@ openssl x509 -in data/certs/1.2.3.4.crt -noout -fingerprint -sha256 \
 | 容器用户 | `derper`（UID/GID 10001），非 root |
 | 权限 | `cap_drop: ALL`、`no-new-privileges:true` |
 | 文件系统 | `read_only: true`；仅 `data/certs` 与 `derper-state` 卷可写 |
-| 容器内端口 | 8443（非 root 绑不了 1024 以下），宿主侧 `443:8443` |
+| 容器内端口 | 8443（非 root 绑不了 1024 以下），宿主侧 `33380:8443` |
 | 镜像来源 | 只有 `ghcr.io`，无第三方加速源 |
 | 镜像验证 | cosign keyless 签名；装了 cosign 的机器上 `install.sh` 自动校验 |
 | 脚本自我更新 | **没有**。要升级请重新下载 `install.sh` |
@@ -253,7 +253,7 @@ curl -fsSL .../install.sh | bash -s -- --no-verify-clients
 |---|---|---|
 | `DERP_HOST` | `auto` | 公网 IPv4 或域名；`auto` = 启动时自动探测 |
 | `DERP_IMAGE` | `ghcr.io/keyblues/ip-derper:latest` | 镜像地址 |
-| `DERP_PORT` | `443` | 宿主 DERP 端口 |
+| `DERP_PORT` | `33380` | 宿主 DERP 端口。国内 VPS 的 443 常被备案策略或 nginx 占用 |
 | `STUN_PORT` | `3478` | 宿主 STUN 端口 |
 | `DERP_REGION_ID` | `900` | 900-998，多台机器必须不同 |
 | `DERP_REGION_CODE` | `cn` | `netcheck` 里显示的短码 |
@@ -267,7 +267,7 @@ curl -fsSL .../install.sh | bash -s -- --no-verify-clients
 |---|---|---|
 | `DERP_ADDR` | `:8443` | 容器内监听地址，一般不用改 |
 | `DERP_HTTP_PORT` | `-1` | `-1` = 不监听 HTTP。纯 IP 模式不需要 80 |
-| `DERP_PUBLIC_PORT` | `443` | 写进 ACL 的 `DERPPort` |
+| `DERP_PUBLIC_PORT` | `33380` | 写进 ACL 的 `DERPPort` |
 | `DERP_STUN_PORT` | `3478` | 写进 ACL 的 `STUNPort` |
 | `DERP_TAILSCALED_SOCK` | `/var/run/tailscale/tailscaled.sock` | tailscaled socket 路径 |
 | `DERP_CONFIG` | `/var/lib/derper/derper.key` | derper 的 mesh key 路径（必须显式传 `-c`） |
@@ -324,7 +324,7 @@ tailscale debug derp-map | jq '.Regions."900".Nodes[0].CertName'
 
 **`recv_data_bytes_derp` 一直是 0**
 
-中继没通。按顺序查：ACL 指纹 → 安全组端口 → `docker compose logs` → `openssl s_client -connect <IP>:443 </dev/null`。
+中继没通。按顺序查：ACL 指纹 → 安全组端口 → `docker compose logs` → `openssl s_client -connect <IP>:33380 </dev/null`。
 
 **`netcheck` 里有这个 region，但流量不走它**
 

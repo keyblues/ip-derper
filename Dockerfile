@@ -5,7 +5,7 @@
 #
 # 设计取舍见 README.md「安全模型」一节，这里只写编译相关：
 #   * 交叉编译（--platform=$BUILDPLATFORM），不依赖 QEMU，arm64 构建同样快
-#   * 运行镜像非 root（UID 10001），因此容器内监听 8443，宿主侧映射 443:8443
+#   * 运行镜像非 root（UID 10001），因此容器内监听 8443，宿主侧映射 33380:8443
 #   * 基础镜像不写死 digest 是为了让每日自动构建不因 EOL 中断；
 #     需要可复现构建时用 renovate.json 打开 digest pinning
 # ============================================================
@@ -85,7 +85,7 @@ COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 USER 10001:10001
 WORKDIR /app
 
-# 8443：容器内非 root 无法绑定 <1024，宿主侧用 ${DERP_PORT:-443}:8443
+# 8443：容器内非 root 无法绑定 <1024，宿主侧用 ${DERP_PORT:-33380}:8443
 EXPOSE 8443
 EXPOSE 3478/udp
 
@@ -93,7 +93,7 @@ ENV DERP_HOST="auto" \
     DERP_CERT_DIR="/app/certs" \
     DERP_ADDR=":8443" \
     DERP_HTTP_PORT="-1" \
-    DERP_PUBLIC_PORT="443" \
+    DERP_PUBLIC_PORT="33380" \
     DERP_STUN="true" \
     DERP_STUN_PORT="3478" \
     DERP_VERIFY_CLIENTS="true" \

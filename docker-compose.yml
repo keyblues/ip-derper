@@ -18,7 +18,7 @@ services:
       DERP_HOST: ${DERP_HOST:-auto}   # auto = 容器自动探测公网 IP
       DERP_ADDR: ":8443"
       DERP_HTTP_PORT: "-1"          # 纯 IP 模式不需要 80 端口
-      DERP_PUBLIC_PORT: ${DERP_PORT:-443}
+      DERP_PUBLIC_PORT: ${DERP_PORT:-33380}
       DERP_STUN: "true"
       DERP_STUN_PORT: ${STUN_PORT:-3478}
       DERP_VERIFY_CLIENTS: ${DERP_VERIFY_CLIENTS:-true}
@@ -31,7 +31,7 @@ services:
       DERP_IP_DETECT: "true"
 
     ports:
-      - "${DERP_PORT:-443}:8443/tcp"
+      - "${DERP_PORT:-33380}:8443/tcp"
       - "${STUN_PORT:-3478}:3478/udp"
 
     volumes:
